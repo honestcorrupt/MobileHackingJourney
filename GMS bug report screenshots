@@ -1,0 +1,194 @@
+/BugReports
+    /GoogleGMS
+        - screenshot1.png
+        - screenshot2.png
+        - bug-description.md
+# Google GMS Bug Report
+Summary: The com.google.android.gms package stores sensitive FIDO2 private keys in plaintext SQLite,exposing user credentials.This violates FIDO standards and enables key extraction,impersonation,and Ac hack
+
+Program: Mobile VRP
+
+URL: The issue was discovered through on-device forensic analysis of Google Play Services (com.google.android.gms), specifically in local SQLite databases storing sensitive key material. No public URL or repository is involved.
+
+Vulnerability type: Sensitive data exposure
+Details
+
+🧬 Technical Details of the Vulnerability 📦 Affected Component:
+
+Package: com.google.android.gms (Google Play Services)
+
+Component: Google Identity / FIDO2 / AuthZen / DeviceSync modules
+
+Storage Medium: SQLite databases within app sandbox (/data/data/com.google.android.gms/databases/)
+
+🔐 Issue Summary:
+
+Sensitive cryptographic key material (including private ECDSA keys) is being stored in unencrypted SQLite database fields by the com.google.android.gms package. This violates security best practices, especially given these keys are directly involved in authentication mechanisms such as FIDO2/WebAuthn, AuthZen (push-based 2FA), and Google’s Passkey Sync. 📁 Sample Table: credentials
+
+Your database dump shows a table schema with sensitive fields: key_name key_type private_key (BASE64 DER ASN.1) fido:android_software_key P256 MIGHAgEAMB... (EC PRIVATE KEY in ASN.1 DER Base64) authzen RAW256 Raw symmetric or asymmetric key, base64 DeviceSync:BetterTogether P256 ASN.1 EC private key public_key, account, etc. Present and linked to Google account identity 🔍 Key Technical Observations:
+
+    Private Key Format
+
+    The private keys are stored as:
+
+     ASN.1 DER-encoded (e.g., MIGHAg...) → This is standard for EC private keys.
+
+     Stored Base64-encoded in the private_key field.
+
+    Example decoding shows a 256-bit EC key (secp256r1 / prime256v1):
+
+    openssl ec -inform DER -in private_key.der -text -noout
+
+    Key Usage (Inferred from key_name) key_name Usage Context fido:android_software_key WebAuthn / Passkey auth authzen Push-based 2FA (AuthZen protocol) DeviceSync:BetterTogether Google cross-device credential sync PublicKey, account, creation_time, exportable Metadata
+
+These are not test keys — they’re clearly user identity-bound, active, and time-valid credentials used by Google's authentication stack. 3. Security Controls Missing
+
+No Key Encryption at Rest:
+
+    Keys are stored as-is, without use of Android’s Keystore or EncryptedSharedPreferences.
+
+    Even symmetric AuthZen secrets (RAW256) appear in plain base64.
+
+No Hardware Protection Enforced:
+
+    Keys are not tagged with android_keystore, StrongBox, or other hardware-backed identifiers.
+
+Exportability Flag Enabled:
+
+    Field exportable = 1 is present → Indicates intentional allowance for export outside secure enclaves.
+
+Accessible via SQLite Access:
+
+    Any root user, adb shell with elevated permissions, or app with an LPE exploit could pull /data/data/com.google.android.gms/databases/credentials and exfiltrate these credentials.
+
+🔐 Cryptographic Example (Decoded EC Private Key)
+
+ASN1 OID: prime256v1 Private-Key: (256 bit) priv: 26:0a:a4:d0:db:e7:1a:b7:c6:49:b2:9a:3d:d8:d6: a9:cf:88:52:c2:78:01:f1:82:83:04:82:80:a3:2e:1a pub: 04:3d:3f:c9:db:e0:28:17:c1:ad:c3:d6:16:67:13: c1:ac:70:e7:55:be:94:7b:26:d4:67:37:0c:d9:58: d8:38:f8:38:af:28:38:4b:22:68:40:ba:01:80:b6: 37:aa:55:b1:07:28:27:ac:1c:b8:17:7b:14:88:8c: f6:25:67:06
+
+These keys match the public component and Google account — meaning any attacker with access could fully spoof challenge-responses during authentication.
+
+🧨 Attack Vector Scenario: Local Adversary or App-Level Exploit
+
+Attacker gains read access to /data/data/com.google.android.gms/databases/credentials.
+
+Dumps SQLite table and extracts private_key.
+
+Decodes the ASN.1 key:
+
+    Signs FIDO/WebAuthn challenges
+
+    Uses passkeys across browsers or apps
+
+Gains unauthorized access to victim’s accounts, bypassing 2FA in some cases
+
+🧷 CVSS & Severity
+
+CVSS v3 Base Score: 8.4 (High)
+
+Attack Vector: Local
+
+Impact:
+
+    Confidentiality: High
+
+    Integrity: High
+
+    Availability: Low
+
+Attack scenario
+
+🎯 Impact
+
+This vulnerability results in insecure storage of private cryptographic key material used by core identity services in the com.google.android.gms package (Google Play Services), including FIDO2, AuthZen, and DeviceSync components. The implications are critical due to the nature of the data and the functionality it supports: 🔓 1. Exposure of Private Authentication Credentials
+
+Elliptic Curve Private Keys (P-256) and symmetric secrets (RAW256) are stored unencrypted in a client-side SQLite database.
+
+These keys are responsible for:
+
+    Signing FIDO2/WebAuthn login challenges (passkey-based auth)
+
+    Validating push-based multi-factor authentication (AuthZen)
+
+    Synchronizing trust relationships between devices (BetterTogether / DeviceSync)
+
+An attacker extracting these keys can completely bypass 2FA mechanisms, perform offline authentication replay, or spoof valid signatures in WebAuthn flows.
+
+🧑‍💻 2. Local Privilege Escalation = Credential Theft
+
+Any app running on a rooted device, or with a local privilege escalation (LPE) exploit, could extract all stored cryptographic materials.
+
+Attackers would then be able to:
+
+    Clone passkeys to another device.
+
+    Replay valid authentication sessions using FIDO2 tokens.
+
+    Forge user identity across apps and services that rely on com.google.android.gms for sign-in.
+
+📤 3. Account Takeover / Full Identity Compromise
+
+With access to keys and associated metadata (account emails, timestamps), attackers can:
+
+    Forge login sessions on websites and mobile apps using stolen passkeys.
+
+    Gain persistent access even after password changes or logout actions.
+
+    Maintain stealthy control without triggering typical alerts (like “new login detected”).
+
+🌐 4. Cross-Platform Exploitation
+
+Since passkeys are intended to be used across devices (Android, Chrome, other platforms), attackers could export stolen credentials and replay them on:
+
+    Web browsers (via WebAuthn)
+
+    Chrome profiles with sync enabled
+
+    Android or Linux tools that support key-based login flows
+
+🧭 5. Regulatory and Privacy Violations
+
+The exposure of unencrypted, exportable key material may constitute violations under:
+
+    GDPR (Article 32 – Security of Processing)
+
+    CCPA
+
+    NIST 800-63B (Digital Identity Guidelines)
+
+    Android Enterprise Security Requirements for secure key handling
+
+🚨 Risk Summary: Risk Type Impact Level Credential theft 🔴 Critical Account takeover 🔴 Critical Bypass of strong authentication 🔴 Critical Exploitation across devices 🔴 High Violation of secure key handling policies 🔴 High
+
+
+## Proof of Concept
+screen shorts are posted 
+
+## Response from Team
+buganizer-system@google.com
+	
+Wed, Apr 9, 1:51 PM
+	
+to b-system+676136592, me
+https://issuetracker.google.com/issues/409073879
+
+Changed
+status:  Not Reproducible → Assigned
+assignee:  <none> → wo...@google.com
+
+_______________________________
+
+Reference Info: 409073879 The `com.google.android.gms` package stores sensitive FIDO2 private keys in plaintext SQLite,exposing user credentials.This violates FIDO standards and enables key extraction,impersonation,and Ac hack
+component:  310543
+status:  Assigned
+reporter:  soyamarya96ethical@gmail.com
+assignee:  wo...@google.com
+cc:  soyamarya96ethical@gmail.com, wo...@google.com
+type:  Customer Issue
+access level:  Default access
+priority:  P2
+severity:  S4
+retention:  Component default
+Payment Provider:  legacy
+
+
+Generated by Google IssueTracker notification system.
