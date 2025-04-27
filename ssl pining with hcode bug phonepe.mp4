@@ -1,3 +1,92 @@
+Report Summary
+Reporter
+
+The PhonePe Android application is vulnerable to a critical set of issues including SSL pinning bypass, cleartext transmission of sensitive authentication data, and OTP replay attacks, which combined allow a malicious attacker to fully take over user accounts.
+
+Due to improper SSL enforcement and insufficient backend validation of OTPs, a threat actor can intercept authentication flows, harvest phone numbers, authorization codes, OTP codes, and device fingerprints, and then reuse captured OTP requests to authenticate as other users without needing new OTPs.
+hc4
+Vulnerability Impact
+Reporter
+
+Impact
+
+Full user account takeover without needing the user's active session.
+
+
+
+Financial fraud possibilities due to unauthorized access to linked bank accounts, wallets.
+
+
+
+Privacy violations by leaking PII including phone numbers and device IDs.
+
+
+
+Compliance risk under India’s Data Pro
+
+hc4
+Proof of Concept
+Reporter
+
+note : I would like to sincerely apologize if this specific endpoint (auth-api.phonepe.com) is technically outside the currently listed targets for the program.
+
+I was focusing on security testing the general PhonePe mobile application (com.phonepe.android), and while using the app under normal conditions, I observed this vulnerability.
+
+Since it severely impacts the PhonePe platform’s user authentication and security, I felt it was important to responsibly disclose this immediately.
+
+If necessary, please feel free to reassign this report to the most appropriate scope on your side.
+
+Thank you for understanding, and I appreciate your time and consideration of this serious security issue.
+
+    SSL Pinning Bypass:
+
+    Using Frida + BurpSuite with SSL Unpinning plugins, traffic between the PhonePe app and auth-api.phonepe.com can be intercepted without certificate errors.
+
+    Successfully captured sensitive API requests.
+
+    Sensitive Data Exposure:
+
+    Intercepted traffic to /apis/users/auth/oauth/v1/authorize reveals:
+
+     Full phone numbers, ad ID, device fingerprints, OAuth client IDs, and code challenges in plain JSON.
+
+    Sensitive fields are not encrypted inside the payload despite HTTPS transport.
+
+    OTP Replay Attack (Critical):
+
+    Intercepted OTP validation request:
+    POST /apis/sentinel/app/hurdles/v1/instance/<instance_id>/onboarding/execute
+    Host: auth-api.phonepe.com
+
+Payload:
+{
+"hurdleInfoSet": [
+{
+"hurdleType": "OTP_V5",
+"isOtpAutoRead": false,
+"key": "6327b357-d6e4-4529-9b80-ae01536d7b9a",
+"otp": "23456",
+"otpReferenceId": "M8xwXoUPpIrKeCPThDnPvuFY9nqmTxZwd2aZd9PMvQY",
+"token": "e69da736ac0f04299150918da7d3f595"
+}
+]
+}
+
+Replayed the exact same otp, otpReferenceId, and token successfully multiple times.
+
+
+
+No CAPTCHA, no rate limiting observed.
+
+
+
+Able to submit OTP multiple times without expiration or locking the account.
+
+**
+"Dear PhonePe Security Team, Please find attached a critical vulnerability report affecting the mobile application authentication flow."
+
+
+
 #response of company 
 #
 Conversation opened. 1 read message.
